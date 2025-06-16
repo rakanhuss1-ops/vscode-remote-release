@@ -15,5 +15,6 @@ These licenses are linked to from other READMEs.
 
 ## Test Cases and Scripts
 
+- [Compatibility Check](check-podman-compatibility.sh) - Script to check if your system is affected by the Podman mount issue
 - [Test Script](test-podman-mount-fix.sh) - Shell script to test different mount syntax options with Podman
 - [Test Case](test-podman-issue/) - Minimal devcontainer configuration that reproduces the Podman mount issue

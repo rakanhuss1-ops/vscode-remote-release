@@ -8,6 +8,14 @@ bind mounts cannot have any filesystem-specific options applied
 
 This is a known issue with the Dev Container CLI when using features on Podman systems without SELinux enabled.
 
+## Check If You're Affected
+
+Run the compatibility check script to see if your system is likely to experience this issue:
+
+```bash
+./docs/check-podman-compatibility.sh
+```
+
 ## Temporary Workarounds
 
 ### Option 1: Manually Edit Generated Dockerfile
