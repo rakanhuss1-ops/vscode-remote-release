@@ -1,0 +1,22 @@
+{
+    "name": "Test Podman Mount Issue",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+        "ghcr.io/devcontainers/feature-starter/hello:1": {
+            "greeting": "Hello World"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.shell.linux": "/bin/bash"
+            },
+            "extensions": [
+                "ms-vscode.vscode-typescript-next"
+            ]
+        }
+    },
+    "forwardPorts": [3000],
+    "postCreateCommand": "echo 'Container created successfully!'",
+    "remoteUser": "vscode"
+}
