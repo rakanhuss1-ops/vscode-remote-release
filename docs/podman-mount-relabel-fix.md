@@ -1,61 +1,100 @@
-# Podman Mount Relabel Fix
+# Podman Mount Relabel Issue - Technical Fix
 
-## Issue Description
+## Problem Description
 
-The Dev Container CLI generates Dockerfiles with invalid mount syntax when using Podman on systems without SELinux. Specifically, the CLI uses the `z` flag in `--mount` options:
+The Dev Container CLI generates Dockerfiles with `RUN --mount=type=bind,...,z` syntax for features installation. The `z` flag is invalid for `--mount` in Podman (only valid for `--volume`), causing build failures on systems without SELinux:
 
-```dockerfile
-RUN --mount=type=bind,from=dev_containers_feature_content_source,source=hello_0,target=/tmp/build-features-src/hello_0,z
-```
-
-This causes the following error:
 ```
 bind mounts cannot have any filesystem-specific options applied
 ```
 
 ## Root Cause
 
-The `z` flag is only valid for `--volume` options in Podman, not for `--mount` options. This restriction is enforced more strictly in newer versions of containerd/buildah (1.7.24+).
+- Docker supports the `z` flag in `--mount` for SELinux relabeling
+- Podman/Buildah only supports the `z` flag in `--volume`, not in `--mount`
+- When SELinux is disabled, Podman rejects any filesystem-specific options in bind mounts
 
-## Solution
+## Technical Solution
 
-### Option 1: Use relabel=shared (Recommended)
+### For devcontainers/cli Implementation
 
-Replace the `z` flag with `relabel=shared` in mount syntax:
+The fix should be implemented in the Dev Container CLI to detect when building with Podman/Buildah and adjust the mount syntax accordingly:
 
+#### 1. Remove `z` flag from `--mount` for Buildah/Podman
+
+**Current (problematic) syntax:**
 ```dockerfile
-RUN --mount=type=bind,from=dev_containers_feature_content_source,source=hello_0,target=/tmp/build-features-src/hello_0,relabel=shared
+RUN --mount=type=bind,from=dev_containers_feature_content_source,source=hello_0,target=/tmp/build-features-src/hello_0,z \
+    cp -ar /tmp/build-features-src/hello_0 /tmp/dev-container-features
 ```
 
-### Option 2: Use --security-opt=label=disable
+**Corrected syntax for Buildah/Podman:**
+```dockerfile
+RUN --mount=type=bind,from=dev_containers_feature_content_source,source=hello_0,target=/tmp/build-features-src/hello_0 \
+    cp -ar /tmp/build-features-src/hello_0 /tmp/dev-container-features
+```
 
-Add the security option to the build command:
+#### 2. Add `--security-opt=label=disable` when building with Podman
+
+When the build engine is detected as Podman, add the security option to the build command:
 
 ```bash
-podman build --security-opt=label=disable ...
+podman buildx build --security-opt=label=disable [other-options]
 ```
 
-## Implementation
+### Detection Logic
 
-The fix needs to be implemented in the [devcontainers/cli](https://github.com/devcontainers/cli) repository where the Dockerfile generation logic resides.
+The CLI should detect the build engine and adjust accordingly:
 
-### Changes Required
+```typescript
+// Pseudo-code for the fix
+function generateMountOptions(buildEngine: string): string {
+    if (buildEngine === 'buildah' || buildEngine === 'podman') {
+        // Don't add 'z' flag for Podman/Buildah
+        return 'type=bind,source=...,target=...';
+    } else {
+        // Keep 'z' flag for Docker
+        return 'type=bind,source=...,target=...,z';
+    }
+}
 
-1. **In devcontainers/cli**: Update the mount syntax generation to use `relabel=shared` instead of `z` when detecting Podman
-2. **Version compatibility**: Ensure the fix works with buildah 1.31.0+ (where relabel was introduced)
-3. **Fallback**: Consider `--security-opt=label=disable` as a fallback for older versions
+function getBuildCommand(buildEngine: string): string[] {
+    const baseCommand = [buildEngine, 'buildx', 'build'];
+    
+    if (buildEngine === 'podman') {
+        baseCommand.push('--security-opt=label=disable');
+    }
+    
+    return baseCommand;
+}
+```
+
+## Implementation Areas
+
+### Files to Modify in devcontainers/cli
+
+1. **Dockerfile generation logic**: Remove `z` flag from `--mount` when using Buildah
+2. **Build command construction**: Add `--security-opt=label=disable` for Podman builds
+3. **Build engine detection**: Detect when Podman/Buildah is being used
+
+### Expected Behavior
+
+- **With Docker**: Continue using `--mount=...,z` (no change)
+- **With Podman**: Use `--mount=...` (no z) + `--security-opt=label=disable`
+- **Cross-compatibility**: Works on both SELinux and non-SELinux systems
 
 ## Testing
 
-Test cases should verify:
-- ✅ Docker compatibility (existing behavior)
-- ✅ Podman with SELinux enabled
-- ✅ Podman without SELinux (the failing case)
-- ✅ Various buildah versions (1.31.0+)
+The fix should be tested with:
 
-## References
+1. **Docker builds**: Ensure existing functionality is preserved
+2. **Podman builds on SELinux systems**: Verify security context handling
+3. **Podman builds on non-SELinux systems**: Verify no bind mount errors
+4. **Feature installation**: Confirm features install correctly with both engines
 
-- [Issue #10585](https://github.com/microsoft/vscode-remote-release/issues/10585)
-- [Original devcontainers/cli PR #548](https://github.com/devcontainers/cli/issues/548)
-- [Buildah relabel support PR #4705](https://github.com/containers/buildah/pull/4705)
-- [Podman mount documentation](https://docs.podman.io/en/stable/markdown/podman-create.1.html#mount-type-type-type-specific-option)
+## Benefits
+
+- **Universal compatibility**: Works with both Docker and Podman
+- **Minimal impact**: No changes to existing Docker workflows
+- **Proper security handling**: Uses appropriate security options for each engine
+- **Standards compliance**: Follows each tool's documented best practices
